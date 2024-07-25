@@ -126,7 +126,6 @@
 - name: Download CoreOS ISO
   ansible.builtin.get_url:
     url: "{{ rhcos_iso_url }}"
-    url: http://servicenode.igou.systems/rhcos-416.94.202406251923-0-live.x86_64.iso
     dest: "{{ single_node_ocp_iso_working_dir }}/ocp/"
   register: coreos_get_results
   when: (rhcos_iso_file_stat.stat.exists == false) or (rhcos_iso_file_stat.stat.checksum != rhcos_iso_sha256)
