@@ -1,2 +1,18 @@
 ---
 # defaults file for single_node_ocp_iso
+
+single_node_ocp_iso_working_dir: /tmp/single_node_ocp_iso
+single_node_ocp_iso_output_dir: "{{ single_node_ocp_iso_working_dir }}"
+single_node_ocp_iso_clean_generated_files_on_start: true
+single_node_ocp_iso_delete_openshift_install_on_start: false
+single_node_ocp_iso_delete_isos_on_start: false
+single_node_ocp_iso_openshift_install_url: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.16.4/openshift-install-linux.tar.gz
+
+compute_replicas: 0
+control_plane_replicas: 1
+metadata_name: sno
+cluster_network_cidr: 10.128.0.0/14
+cluster_network_host_prefix: 23
+machine_network_cidr: 10.10.9.0/24
+network_type: OVNKubernetes
+service_network_cidr: 172.30.0.0/16

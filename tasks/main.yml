@@ -1,2 +1,157 @@
 ---
 # tasks file for single_node_ocp_iso
+
+# If DNS checks enabled, go do them
+
+# If nuke everything variable nuke everything
+
+# If cleanup generated stuff variable, cleanup generated stuff
+
+- name: If configured to, remove openshift-install
+  ansible.builtin.file:
+    state: absent
+    path: "{{ single_node_ocp_iso_working_dir }}/bin/openshift-install"
+  when: single_node_ocp_iso_delete_openshift_install_on_start == true
+
+- name: If configured to, remove old ISOs
+  ansible.builtin.file:
+    state: absent
+    path: "{{ item }}"
+  when: single_node_ocp_iso_delete_isos_on_start == true
+  with_fileglob:
+  - "{{ single_node_ocp_iso_working_dir }}/ocp/*.iso"
+
+- name: If they exist, remove generated files
+  ansible.builtin.file:
+    state: absent
+    path: "{{ item }}"
+  loop:
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/auth"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/bootstrap-in-place-for-live-iso.ign"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/manifests"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/metadata.json"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/rhcos-live.iso"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/worker.ign"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/.openshift_install.log"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/.openshift_install_state.json"
+  when: single_node_ocp_iso_clean_generated_files_on_start == true
+
+
+- name: Create temp bin install directory
+  ansible.builtin.file:
+    state: directory
+    path: "{{ single_node_ocp_iso_working_dir }}/bin"
+
+- name: Create OCP install directory
+  ansible.builtin.file:
+    state: directory
+    path: "{{ single_node_ocp_iso_working_dir }}/ocp"
+
+- name: Template install-config.yml
+  ansible.builtin.template:
+    src: install-config.yml.j2
+    dest: "{{ single_node_ocp_iso_working_dir }}/ocp/install-config.yaml"
+
+- name: Template install-config.yml.bak
+  ansible.builtin.template:
+    src: install-config.yml.j2
+    dest: "{{ single_node_ocp_iso_working_dir }}/ocp/install-config.yaml.bak"
+
+- name: Check if openshift-install already exists
+  ansible.builtin.stat:
+    checksum_algorithm: sha256
+    path: "{{ single_node_ocp_iso_working_dir }}/bin/openshift-install"
+  register: openshiftinstall_file_stat
+
+# Logic could be added here to validate the integrity of the binary
+- name: Download openshift-install
+  ansible.builtin.unarchive:
+    src: '{{ openshift_install_url }}'
+    dest: "{{ single_node_ocp_iso_working_dir }}/bin/"
+    mode: '0755'
+    remote_src: true
+  register: openshiftinstall_download_result
+  when: openshiftinstall_file_stat.stat.exists == false
+
+- name: Get RHCOS stream json
+  ansible.builtin.command: '{{ single_node_ocp_iso_working_dir }}/bin/openshift-install coreos print-stream-json'
+  register: stream_result
+
+- name: Set stream json fact
+  ansible.builtin.set_fact:
+    stream_json: "{{ stream_result.stdout | from_json }}"
+
+- name: Get x86_64 iso location
+  ansible.builtin.set_fact:
+    rhcos_iso_url: "{{ stream_json.architectures.x86_64.artifacts.metal.formats.iso.disk.location }}"
+  when: single_node_ocp_iso_coreos_url_override is not defined
+
+- name: Override CoreOS URL if necessary
+  ansible.builtin.set_fact:
+    rhcos_iso_url: "{{ single_node_ocp_iso_coreos_url_override }}"
+  when: single_node_ocp_iso_coreos_url_override is defined
+
+- name: Get x86_64 iso sha256
+  ansible.builtin.set_fact:
+    rhcos_iso_sha256: "{{ stream_json.architectures.x86_64.artifacts.metal.formats.iso.disk.sha256 }}"
+
+- name: Split rhcos ISO URL
+  ansible.builtin.set_fact:
+    rhcos_iso_url_split: "{{ rhcos_iso_url | split('/') }}"
+
+- name: Determine desired path for rhcos iso on filesystem
+  ansible.builtin.set_fact:
+    rhcos_iso_path: "{{ single_node_ocp_iso_working_dir }}/ocp/{{ rhcos_iso_url_split[-1] }}"
+
+- name: Run openshift-install create manifests
+  ansible.builtin.command: "{{ single_node_ocp_iso_working_dir }}/bin/openshift-install create manifests --dir={{ single_node_ocp_iso_working_dir }}/ocp"
+
+- name: Write additional manifests
+  ansible.builtin.copy:
+    content: "{{ item.contents }}"
+    dest: "{{ single_node_ocp_iso_working_dir }}/ocp/manifests/{{ item.file_name }}"
+    force: false
+  loop: "{{ additional_manifests }}"
+  when: additional_manifests is defined
+
+- name: Run openshift-install create single-node-ignition-config
+  ansible.builtin.command: "{{ single_node_ocp_iso_working_dir }}/bin/openshift-install create single-node-ignition-config --dir={{ single_node_ocp_iso_working_dir }}/ocp"
+
+- name: Check if CoreOS ISO with matching sha256 already exists
+  ansible.builtin.stat:
+    checksum_algorithm: sha256
+    path: "{{ single_node_ocp_iso_working_dir }}/ocp/{{ rhcos_iso_url_split[-1] }}"
+  register: rhcos_iso_file_stat
+
+- name: Download CoreOS ISO
+  ansible.builtin.get_url:
+    url: "{{ rhcos_iso_url }}"
+    url: http://servicenode.igou.systems/rhcos-416.94.202406251923-0-live.x86_64.iso
+    dest: "{{ single_node_ocp_iso_working_dir }}/ocp/"
+  register: coreos_get_results
+  when: (rhcos_iso_file_stat.stat.exists == false) or (rhcos_iso_file_stat.stat.checksum != rhcos_iso_sha256)
+
+- name: Create Copy of CoreOS ISO
+  ansible.builtin.copy:
+    src: "{{ rhcos_iso_path }}"
+    remote_src: true
+    dest: "{{ single_node_ocp_iso_working_dir }}/ocp/rhcos-live.iso"
+  register: coreos_live_copy_results
+
+- name: Write configuration to ISO using coreos-installer
+  ansible.builtin.command: "coreos-installer iso ignition embed -fi {{ single_node_ocp_iso_working_dir }}/ocp/bootstrap-in-place-for-live-iso.ign {{ coreos_live_copy_results.dest }}"
+
+- name: Copy files to destination directory
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ item }}"
+    dest: "{{ single_node_ocp_iso_output_dir }}"
+  when: (single_node_ocp_iso_output_dir is defined) and (single_node_ocp_iso_output_dir != single_node_ocp_iso_working_dir)
+  loop:
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/auth"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/bootstrap-in-place-for-live-iso.ign"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/metadata.json"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/rhcos-live.iso"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/worker.ign"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/.openshift_install.log"
+    - "{{ single_node_ocp_iso_working_dir }}/ocp/.openshift_install_state.json"
