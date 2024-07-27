@@ -15,7 +15,7 @@ galaxy_info:
   # - CC-BY-4.0
   license: MIT
   min_ansible_version: 2.9
-  role_name: single_node_ocp_iso
+  role_name: single_node_openshift_iso
   namespace: David-Igou
   # If this a Container Enabled role, provide the minimum Ansible Container version.
   # min_ansible_container_version:
