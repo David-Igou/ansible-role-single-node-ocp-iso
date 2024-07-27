@@ -16,7 +16,7 @@ galaxy_info:
   license: MIT
   min_ansible_version: 2.9
   role_name: single_node_ocp_iso
-  namespace: david_igou
+  namespace: david-igou
   # If this a Container Enabled role, provide the minimum Ansible Container version.
   # min_ansible_container_version:
 
